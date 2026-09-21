@@ -5,7 +5,7 @@ import requests
 def get_weather_data(api_key, location_name="臺北市"):
     """
     取得指定地點的最高溫度與最高降雨機率
-    範例使用中央氣象署 F-C0032-001 (一般天氣預報-今明36小時)
+    使用中央氣象署 F-C0032-001 (一般天氣預報-今明36小時)
     """
     url = "https://opendata.cwa.gov.tw/api/v1/rest/datastore/F-C0032-001"
     params = {
@@ -37,10 +37,10 @@ def get_weather_data(api_key, location_name="臺北市"):
     except (KeyError, IndexError, ValueError) as e:
         raise ValueError(f"解析天氣資料失敗: {e}")
 
-def get_aqi_data(api_key, site_name="臺北"):
+def get_aqi_data(api_key, site_name="中山"):
     """
     取得指定測站的 AQI 資料
-    相容環境部 API 回傳 List 或 Dict 格式
+    環境部測站名稱如: 中山、萬華、士林、古亭、桃園等
     """
     url = "https://data.moenv.gov.tw/api/v2/aqx_p_432"
     params = {
@@ -56,7 +56,6 @@ def get_aqi_data(api_key, site_name="臺北"):
         
     data = response.json()
     try:
-        # 如果最外層是 list，直接使用；若是 dict，則取 key 為 records 的內容
         if isinstance(data, list):
             records = data
         elif isinstance(data, dict):
@@ -65,15 +64,20 @@ def get_aqi_data(api_key, site_name="臺北"):
             records = []
 
         for record in records:
-            # 支援 sitename 或 SiteName 欄位命名
-            site = record.get("sitename") or record.get("SiteName")
-            if site == site_name:
+            site = record.get("sitename") or record.get("SiteName") or ""
+            if site == site_name or site_name in site:
                 aqi_val = record.get("aqi") or record.get("AQI")
                 return int(aqi_val) if aqi_val and aqi_val != "" else 0
                 
+        # 若指定的測站不在當前頁面，抓取第一筆有效資料做為備案
+        if records:
+            first_aqi = records[0].get("aqi") or records[0].get("AQI")
+            return int(first_aqi) if first_aqi and first_aqi != "" else 0
+
         raise ValueError(f"找不到測站: {site_name}")
     except (KeyError, ValueError) as e:
         raise ValueError(f"解析 AQI 資料失敗: {e}")
+
 def build_commute_advice(max_temp, max_pop, aqi):
     """
     根據規格產生可同時成立的多個建議
@@ -111,7 +115,6 @@ def send_telegram_message(bot_token, chat_id, message_text):
         raise RuntimeError(f"Telegram 發送失敗，狀態碼: {response.status_code}, 回應: {response.text}")
 
 def main():
-    # 讀取環境變數 (Secrets)
     tg_token = os.environ.get("TG_BOT_TOKEN")
     tg_chat_id = os.environ.get("TG_CHAT_ID")
     cwa_key = os.environ.get("CWA_API_KEY")
@@ -123,13 +126,13 @@ def main():
 
     try:
         max_temp, max_pop = get_weather_data(cwa_key, location_name="臺北市")
-        aqi = get_aqi_data(moenv_key, site_name="臺北")
+        # 修正：傳入有效測站名稱 "中山"
+        aqi = get_aqi_data(moenv_key, site_name="中山")
         advices = build_commute_advice(max_temp, max_pop, aqi)
 
-        # 組合推播訊息
         message = (
             f"🚴 *智慧通勤風險通知*\n\n"
-            f"📍 地點：臺北市\n"
+            f"📍 地點：臺北市 (空氣測站: 中山)\n"
             f"🌡️ 最高溫度：{max_temp}°C\n"
             f"🌧️ 最高降雨機率：{max_pop}%\n"
             f"💨 空氣品質 (AQI)：{aqi}\n\n"
