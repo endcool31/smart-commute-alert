@@ -40,7 +40,7 @@ def get_weather_data(api_key, location_name="臺北市"):
 def get_aqi_data(api_key, site_name="臺北"):
     """
     取得指定測站的 AQI 資料
-    範例使用環境部 AQX_P_432 (空氣品質指標)
+    相容環境部 API 回傳 List 或 Dict 格式
     """
     url = "https://data.moenv.gov.tw/api/v2/aqx_p_432"
     params = {
@@ -56,14 +56,24 @@ def get_aqi_data(api_key, site_name="臺北"):
         
     data = response.json()
     try:
-        for record in data.get("records", []):
-            if record.get("sitename") == site_name:
-                aqi_str = record.get("aqi")
-                return int(aqi_str) if aqi_str else 0
+        # 如果最外層是 list，直接使用；若是 dict，則取 key 為 records 的內容
+        if isinstance(data, list):
+            records = data
+        elif isinstance(data, dict):
+            records = data.get("records", [])
+        else:
+            records = []
+
+        for record in records:
+            # 支援 sitename 或 SiteName 欄位命名
+            site = record.get("sitename") or record.get("SiteName")
+            if site == site_name:
+                aqi_val = record.get("aqi") or record.get("AQI")
+                return int(aqi_val) if aqi_val and aqi_val != "" else 0
+                
         raise ValueError(f"找不到測站: {site_name}")
     except (KeyError, ValueError) as e:
         raise ValueError(f"解析 AQI 資料失敗: {e}")
-
 def build_commute_advice(max_temp, max_pop, aqi):
     """
     根據規格產生可同時成立的多個建議
